@@ -17,6 +17,10 @@ type concatString struct {
 	left   String
 	right  String
 	length int
+	// meter is the runtime whose allocation hooks charge the flattened string, set when it made the rope with metering on.
+	meter *Runtime
+	// pending is what the rope added that is not charged yet, guarded by mu.
+	pending int64
 	// Strings should be treated as immutable therefore they can be shared by multiple Runtimes
 	mu sync.Mutex
 }
@@ -25,16 +29,37 @@ func (s *concatString) flatten() (flattened String) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.right != nil {
-		var sb StringBuilder
-		s.writeTo(&sb)
-		flattened = sb.String()
-		s.left, s.right = flattened, nil
-	} else {
-		flattened = s.left
+	if s.right == nil {
+		return s.left
 	}
-
+	// Flattening may run in host code, so the hooks must not stop it here. A refused rope stays a rope: the flat copy is not kept, and the host stops the runtime at its next check.
+	keep := s.meter == nil || s.meter.tryCheckAllocation(int64(s.length)*2)
+	var sb StringBuilder
+	s.writeTo(&sb)
+	flattened = sb.String()
+	if keep {
+		s.left, s.right = flattened, nil
+		if s.meter != nil {
+			s.meter.tryChargeString(flattened)
+		}
+	}
 	return flattened
+}
+
+// loadPending is what s has not charged yet.
+func (s *concatString) loadPending() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pending
+}
+
+// takePending hands over what s had not charged yet, to a rope that appends to it.
+func (s *concatString) takePending() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.pending
+	s.pending = 0
+	return p
 }
 
 func (s *concatString) load() (left, right String) {
