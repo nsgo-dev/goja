@@ -1,6 +1,6 @@
 # token
 --
-    import "github.com/dop251/goja/token"
+    import "github.com/nsgo-dev/goja/token"
 
 Package token defines constants representing the lexical tokens of JavaScript
 (ECMA5).

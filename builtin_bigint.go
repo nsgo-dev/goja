@@ -10,7 +10,7 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/dop251/goja/unistring"
+	"github.com/nsgo-dev/goja/unistring"
 )
 
 type valueBigInt big.Int

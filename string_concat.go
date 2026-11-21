@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dop251/goja/unistring"
+	"github.com/nsgo-dev/goja/unistring"
 )
 
 const concatThreshold = 32

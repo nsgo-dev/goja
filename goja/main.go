@@ -13,9 +13,7 @@ import (
 	"runtime/pprof"
 	"time"
 
-	"github.com/dop251/goja"
-	"github.com/dop251/goja_nodejs/console"
-	"github.com/dop251/goja_nodejs/require"
+	"github.com/nsgo-dev/goja"
 )
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
@@ -41,6 +39,17 @@ func load(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
 	return v
 }
 
+func printer(w io.Writer) func(goja.FunctionCall) goja.Value {
+	return func(call goja.FunctionCall) goja.Value {
+		args := make([]any, len(call.Arguments))
+		for i, arg := range call.Arguments {
+			args[i] = arg.String()
+		}
+		fmt.Fprintln(w, args...)
+		return goja.Undefined()
+	}
+}
+
 func newRandSource() goja.RandSource {
 	var seed int64
 	if err := binary.Read(crand.Reader, binary.LittleEndian, &seed); err != nil {
@@ -63,8 +72,12 @@ func run() error {
 	vm := goja.New()
 	vm.SetRandSource(newRandSource())
 
-	new(require.Registry).Enable(vm)
-	console.Enable(vm)
+	// goja_nodejs is built against github.com/dop251/goja, so its console and require modules cannot be used with this module path. A minimal console takes its place.
+	console := vm.NewObject()
+	for name, w := range map[string]io.Writer{"log": os.Stdout, "info": os.Stdout, "debug": os.Stdout, "warn": os.Stderr, "error": os.Stderr} {
+		console.Set(name, printer(w))
+	}
+	vm.Set("console", console)
 
 	vm.Set("load", func(call goja.FunctionCall) goja.Value {
 		return load(vm, call)

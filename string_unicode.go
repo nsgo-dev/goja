@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 	"unsafe"
 
-	"github.com/dop251/goja/unistring"
+	"github.com/nsgo-dev/goja/unistring"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"golang.org/x/text/transform"
