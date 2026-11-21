@@ -336,7 +336,14 @@ func (e *baseUncatchableException) _uncatchableException() {}
 
 type InterruptedError struct {
 	baseUncatchableException
-	iface interface{}
+	iface   interface{}
+	callErr error
+}
+
+// CallError is the error from the call that returned before a promise job
+// was interrupted. It is nil unless job retention is enabled and that call threw.
+func (e *InterruptedError) CallError() error {
+	return e.callErr
 }
 
 func (e *InterruptedError) Unwrap() error {
@@ -1517,10 +1524,10 @@ func (r *Runtime) RunProgram(p *Program) (result Value, err error) {
 		}
 		if x := recover(); x != nil {
 			if ex := asUncatchableException(x); ex != nil {
-				err = ex
 				if len(vm.callStack) == 0 {
-					r.leaveAbrupt(ex)
+					ex = r.leaveAbrupt(ex, err)
 				}
+				err = ex
 			} else {
 				panic(x)
 			}
@@ -2626,10 +2633,10 @@ func (r *Runtime) runWrapped(f func()) (err error) {
 	defer func() {
 		if x := recover(); x != nil {
 			if ex := asUncatchableException(x); ex != nil {
-				err = ex
 				if len(r.vm.callStack) == 0 {
-					r.leaveAbrupt(ex)
+					ex = r.leaveAbrupt(ex, err)
 				}
+				err = ex
 			} else {
 				panic(x)
 			}
@@ -3131,12 +3138,17 @@ func (r *Runtime) leave() {
 }
 
 // called when the top level function returns (i.e. control is passed outside the Runtime) but it was due to an interrupt
-func (r *Runtime) leaveAbrupt(err error) {
+func (r *Runtime) leaveAbrupt(err, callErr error) error {
 	var interrupted *InterruptedError
 	if r.jobFilter == nil || !errors.As(err, &interrupted) {
 		r.jobQueue = nil
+	} else if callErr != nil {
+		result := *interrupted
+		result.callErr = callErr
+		err = &result
 	}
 	r.ClearInterrupt()
+	return err
 }
 
 func nilSafe(v Value) Value {
