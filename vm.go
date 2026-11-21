@@ -1377,7 +1377,11 @@ func (_add) exec(vm *vm) {
 		if !isRightString {
 			rightString = right.toString()
 		}
-		ret = leftString.Concat(rightString)
+		if vm.r.checkAlloc == nil {
+			ret = leftString.Concat(rightString)
+		} else {
+			ret = vm.r.concat(leftString, rightString)
+		}
 	} else {
 		switch left := left.(type) {
 		case valueInt:
@@ -2843,7 +2847,7 @@ func (_newObject) exec(vm *vm) {
 type newArray uint32
 
 func (l newArray) exec(vm *vm) {
-	values := make([]Value, 0, l)
+	values := makeMeteredSlice[Value](vm.r, 0, int(l))
 	vm.push(vm.r.newArrayValues(values))
 	vm.pc++
 }
@@ -2861,7 +2865,7 @@ func (_pushArrayItem) exec(vm *vm) {
 		return
 	}
 	val := vm.stack[vm.sp-1]
-	arr.values = append(arr.values, val)
+	arr.values = appendMetered(vm.r, arr.values, val)
 	if val != nil {
 		arr.objCount++
 	}
@@ -2882,7 +2886,7 @@ func (_pushArraySpread) exec(vm *vm) {
 			vm.throw(vm.r.newError(vm.r.getRangeError(), "Invalid array length"))
 			return
 		}
-		arr.values = append(arr.values, val)
+		arr.values = appendMetered(vm.r, arr.values, val)
 		arr.objCount++
 	})
 	vm.sp--
@@ -2914,7 +2918,7 @@ func (_newArrayFromIter) exec(vm *vm) {
 	vm.iterStack = vm.iterStack[:l]
 	if iter.iterator != nil {
 		iter.iterate(func(val Value) {
-			values = append(values, val)
+			values = appendMetered(vm.r, values, val)
 		})
 	}
 	vm.push(vm.r.newArrayValues(values))
@@ -5497,6 +5501,7 @@ func (n concatStrings) exec(vm *vm) {
 		}
 	}
 
+	vm.r.checkAllocation(int64(length) * 2)
 	vm.sp -= int(n) - 1
 	if allAscii {
 		var buf strings.Builder
@@ -5513,6 +5518,7 @@ func (n concatStrings) exec(vm *vm) {
 		}
 		vm.stack[vm.sp-1] = buf.String()
 	}
+	vm.r.chargeString(vm.stack[vm.sp-1].(String))
 	vm.pc++
 }
 

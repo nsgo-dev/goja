@@ -186,6 +186,8 @@ type RandSource func() float64
 type Now func() time.Time
 
 type Runtime struct {
+	checkAlloc      func(int64)
+	chargeAlloc     func(*byte, int64)
 	global          global
 	globalObject    *Object
 	stringSingleton *stringObject

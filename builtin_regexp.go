@@ -731,7 +731,7 @@ func (r *Runtime) getGlobalRegexpMatches(rxObj *Object, s String, fullUnicode bo
 		if res == _null {
 			break
 		}
-		a = append(a, res)
+		a = appendMetered(r, a, res)
 		matchStr := nilSafe(r.toObject(res).self.getIdx(valueInt(0), nil)).toString()
 		if matchStr.Length() == 0 {
 			thisIndex := toLength(rxObj.self.getStr("lastIndex", nil))
@@ -1130,6 +1130,9 @@ func (r *Runtime) regexpproto_stdReplacerGeneric(rxObj *Object, s, replaceStr St
 	lengthS := s.Length()
 	nextSourcePosition := 0
 	var resultBuf StringBuilder
+	if r.checkAlloc != nil {
+		resultBuf.meter = r
+	}
 	for _, result := range results {
 		obj := r.toObject(result)
 		nCaptures := max(toLength(obj.self.getStr("length", nil))-1, 0)
@@ -1278,7 +1281,7 @@ func (r *Runtime) regexpproto_stdReplacer(call FunctionCall) Value {
 	replaceStr, rcall := getReplaceValue(call.Argument(1))
 
 	rx := r.checkStdRegexp(rxObj)
-	if rx == nil {
+	if rx == nil || r.checkAlloc != nil {
 		return r.regexpproto_stdReplacerGeneric(rxObj, s, replaceStr, rcall)
 	}
 

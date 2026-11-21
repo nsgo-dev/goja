@@ -48,8 +48,10 @@ type lenientUtf16Decoder struct {
 // (and therefore cannot be represented as UTF-8) or never expected to be exported to Go. See also
 // StringFromUTF16.
 type StringBuilder struct {
-	asciiBuilder   strings.Builder
-	unicodeBuilder unicodeStringBuilder
+	asciiBuilder    strings.Builder
+	unicodeBuilder  unicodeStringBuilder
+	meter           *Runtime
+	chargedCapacity int
 }
 
 type unicodeStringBuilder struct {
@@ -244,6 +246,10 @@ func (b *StringBuilder) ascii() bool {
 
 func (b *StringBuilder) WriteString(s String) {
 	a, u := devirtualizeString(s)
+	if b.meter != nil {
+		b.checkAppend(s.Length(), u != nil)
+		defer b.chargeAllocation()
+	}
 	if u != nil {
 		b.switchToUnicode(u.Length())
 		b.unicodeBuilder.writeUnicodeString(u)
@@ -285,6 +291,14 @@ func (b *StringBuilder) writeASCII(s string) {
 }
 
 func (b *StringBuilder) WriteRune(r rune) {
+	if b.meter != nil {
+		n := 1
+		if r > 0xffff {
+			n = 2
+		}
+		b.checkAppend(n, r >= utf8.RuneSelf)
+		defer b.chargeAllocation()
+	}
 	if r < utf8.RuneSelf {
 		if b.ascii() {
 			b.asciiBuilder.WriteByte(byte(r))
@@ -300,6 +314,31 @@ func (b *StringBuilder) WriteRune(r rune) {
 		}
 		b.switchToUnicode(extraLen)
 		b.unicodeBuilder.writeRuneFast(r)
+	}
+}
+
+// checkAppend checks the backing allocation before an appending write can grow it.
+func (b *StringBuilder) checkAppend(n int, unicode bool) {
+	if b.ascii() {
+		if unicode {
+			b.meter.checkAllocation(int64(max(b.asciiBuilder.Len()+n+2, b.asciiBuilder.Cap()+1)) * 2)
+		} else {
+			b.meter.checkStringGrow(b.asciiBuilder.Len()+n, b.asciiBuilder.Cap(), 1)
+		}
+	} else {
+		b.meter.checkStringGrow(len(b.unicodeBuilder.buf)+n, cap(b.unicodeBuilder.buf), 2)
+	}
+}
+
+func (b *StringBuilder) chargeAllocation() {
+	capacity := b.asciiBuilder.Cap() + 2*cap(b.unicodeBuilder.buf)
+	if capacity != b.chargedCapacity {
+		b.chargedCapacity = capacity
+		if b.ascii() {
+			b.meter.chargeStringBuilder(&b.asciiBuilder)
+		} else {
+			chargeSlice(b.meter, b.unicodeBuilder.buf)
+		}
 	}
 }
 
@@ -342,6 +381,10 @@ func (b *StringBuilder) switchToUnicode(extraLen int) {
 
 func (b *StringBuilder) WriteSubstring(source String, start int, end int) {
 	a, us := devirtualizeString(source)
+	if b.meter != nil {
+		b.checkAppend(end-start, us != nil)
+		defer b.chargeAllocation()
+	}
 	if us == nil {
 		if b.ascii() {
 			b.asciiBuilder.WriteString(string(a[start:end]))
