@@ -174,7 +174,20 @@ func (p *Promise) addReactions(fulfillReaction *promiseReaction, rejectReaction 
 }
 
 func (r *Runtime) newPromiseResolveThenableJob(p *Promise, thenable Value, then *jobCallback) func() {
+	var context any
+	if r.jobFilter != nil && r.asyncContextTracker != nil {
+		context = r.asyncContextTracker.Grab()
+	}
 	return func() {
+		filter, tracker := r.jobFilter, r.asyncContextTracker
+		if filter != nil {
+			if !filter(context) {
+				return
+			}
+			if tracker != nil {
+				tracker.Resumed(context)
+			}
+		}
 		resolve, reject := p.createResolvingFunctions()
 		ex := r.vm.try(func() {
 			r.callJobCallback(then, thenable, resolve, reject)
@@ -183,6 +196,9 @@ func (r *Runtime) newPromiseResolveThenableJob(p *Promise, thenable Value, then 
 			if fn, ok := reject.self.assertCallable(); ok {
 				fn(FunctionCall{This: _undefined, Arguments: []Value{ex.val}})
 			}
+		}
+		if filter != nil && tracker != nil {
+			tracker.Exited()
 		}
 	}
 }
@@ -199,6 +215,15 @@ func (r *Runtime) triggerPromiseReactions(reactions []*promiseReaction, argument
 
 func (r *Runtime) newPromiseReactionJob(reaction *promiseReaction, argument Value) func() {
 	return func() {
+		filter, tracker := r.jobFilter, r.asyncContextTracker
+		if filter != nil {
+			if !filter(reaction.asyncCtx) {
+				return
+			}
+			if tracker != nil {
+				tracker.Resumed(reaction.asyncCtx)
+			}
+		}
 		var handlerResult Value
 		fulfill := false
 		if reaction.handler == nil {
@@ -207,7 +232,7 @@ func (r *Runtime) newPromiseReactionJob(reaction *promiseReaction, argument Valu
 				fulfill = true
 			}
 		} else {
-			if tracker := r.asyncContextTracker; tracker != nil {
+			if filter == nil && tracker != nil {
 				tracker.Resumed(reaction.asyncCtx)
 			}
 			ex := r.vm.try(func() {
@@ -217,7 +242,7 @@ func (r *Runtime) newPromiseReactionJob(reaction *promiseReaction, argument Valu
 			if ex != nil {
 				handlerResult = ex.val
 			}
-			if tracker := r.asyncContextTracker; tracker != nil {
+			if filter == nil && tracker != nil {
 				tracker.Exited()
 			}
 		}
@@ -227,6 +252,9 @@ func (r *Runtime) newPromiseReactionJob(reaction *promiseReaction, argument Valu
 			} else {
 				reaction.capability.reject(handlerResult)
 			}
+		}
+		if filter != nil && tracker != nil {
+			tracker.Exited()
 		}
 	}
 }
@@ -674,4 +702,25 @@ func (r *Runtime) SetPromiseRejectionTracker(tracker PromiseRejectionTracker) {
 // This method (as Runtime in general) is not goroutine-safe.
 func (r *Runtime) SetAsyncContextTracker(tracker AsyncContextTracker) {
 	r.asyncContextTracker = tracker
+}
+
+// SetPromiseJobFilter checks a queued promise job's captured async context
+// before it runs. The filter also enables retention of unstarted jobs across
+// interruptions so the host can resume them with a fresh budget. A false
+// result discards the job. Passing nil restores the default and clears any
+// retained jobs. Call this only while the runtime is idle.
+func (r *Runtime) SetPromiseJobFilter(filter func(any) bool) {
+	if filter == nil && r.jobFilter != nil {
+		r.jobQueue = nil
+	}
+	r.jobFilter = filter
+}
+
+// DrainPromiseJobs resumes queued promise jobs in their original order.
+// Call it from outside the runtime, after handling an interruption.
+func (r *Runtime) DrainPromiseJobs() error {
+	if len(r.jobQueue) == 0 {
+		return nil
+	}
+	return r.runWrapped(func() {})
 }

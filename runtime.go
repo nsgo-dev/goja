@@ -206,7 +206,9 @@ type Runtime struct {
 	vm   *vm
 	hash *maphash.Hash
 
-	jobQueue []func()
+	jobQueue     []func()
+	jobFilter    func(any) bool
+	drainingJobs bool
 
 	promiseRejectionTracker PromiseRejectionTracker
 	asyncContextTracker     AsyncContextTracker
@@ -1517,7 +1519,7 @@ func (r *Runtime) RunProgram(p *Program) (result Value, err error) {
 			if ex := asUncatchableException(x); ex != nil {
 				err = ex
 				if len(vm.callStack) == 0 {
-					r.leaveAbrupt()
+					r.leaveAbrupt(ex)
 				}
 			} else {
 				panic(x)
@@ -2626,7 +2628,7 @@ func (r *Runtime) runWrapped(f func()) (err error) {
 			if ex := asUncatchableException(x); ex != nil {
 				err = ex
 				if len(r.vm.callStack) == 0 {
-					r.leaveAbrupt()
+					r.leaveAbrupt(ex)
 				}
 			} else {
 				panic(x)
@@ -3102,9 +3104,25 @@ func (r *Runtime) getHash() *maphash.Hash {
 // called when the top level function returns normally (i.e. control is passed outside the Runtime).
 func (r *Runtime) leave() {
 	var jobs []func()
+	var next int
+	if r.jobFilter != nil {
+		if r.drainingJobs {
+			return
+		}
+		r.drainingJobs = true
+		defer func() {
+			r.drainingJobs = false
+			if next < len(jobs) {
+				// Keep unstarted siblings before the jobs they queued.
+				pending := append([]func(){}, jobs[next:]...)
+				r.jobQueue = append(pending, r.jobQueue...)
+			}
+		}()
+	}
 	for len(r.jobQueue) > 0 {
 		jobs, r.jobQueue = r.jobQueue, jobs[:0]
-		for _, job := range jobs {
+		for i, job := range jobs {
+			next = i + 1
 			job()
 		}
 	}
@@ -3113,8 +3131,11 @@ func (r *Runtime) leave() {
 }
 
 // called when the top level function returns (i.e. control is passed outside the Runtime) but it was due to an interrupt
-func (r *Runtime) leaveAbrupt() {
-	r.jobQueue = nil
+func (r *Runtime) leaveAbrupt(err error) {
+	var interrupted *InterruptedError
+	if r.jobFilter == nil || !errors.As(err, &interrupted) {
+		r.jobQueue = nil
+	}
 	r.ClearInterrupt()
 }
 
