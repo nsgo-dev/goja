@@ -147,7 +147,7 @@ func (a *sparseArrayObject) getOwnPropIdx(idx valueInt) Value {
 
 func (a *sparseArrayObject) add(idx uint32, val Value) {
 	i := a.findIdx(idx)
-	a.items = append(a.items, sparseArrayItem{})
+	a.items = appendMetered(a.val.runtime, a.items, sparseArrayItem{})
 	copy(a.items[i+1:], a.items[i:])
 	a.items[i] = sparseArrayItem{
 		idx:   idx,
@@ -183,7 +183,7 @@ func (a *sparseArrayObject) _setOwnIdx(idx uint32, val Value, throw bool) bool {
 		}
 
 		if a.expand(idx) {
-			a.items = append(a.items, sparseArrayItem{})
+			a.items = appendMetered(a.val.runtime, a.items, sparseArrayItem{})
 			copy(a.items[i+1:], a.items[i:])
 			a.items[i] = sparseArrayItem{
 				idx:   idx,
@@ -279,7 +279,7 @@ func (a *sparseArrayObject) stringKeys(all bool, accum []Value) []Value {
 }
 
 func (a *sparseArrayObject) setValues(values []Value, objCount int) {
-	a.items = make([]sparseArrayItem, 0, objCount)
+	a.items = makeMeteredSlice[sparseArrayItem](a.val.runtime, 0, objCount)
 	for i, val := range values {
 		if val != nil {
 			a.items = append(a.items, sparseArrayItem{
@@ -357,7 +357,7 @@ func (a *sparseArrayObject) _defineIdxProperty(idx uint32, desc PropertyDescript
 		}
 		if i >= len(a.items) || a.items[i].idx != idx {
 			if a.expand(idx) {
-				a.items = append(a.items, sparseArrayItem{})
+				a.items = appendMetered(a.val.runtime, a.items, sparseArrayItem{})
 				copy(a.items[i+1:], a.items[i:])
 				a.items[i] = sparseArrayItem{
 					idx:   idx,

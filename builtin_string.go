@@ -257,16 +257,18 @@ func (r *Runtime) stringproto_concat(call FunctionCall) Value {
 		}
 	}
 
+	r.checkAllocation(int64(totalLen) * 2)
 	if allAscii {
 		var buf strings.Builder
 		buf.Grow(toStringLen(totalLen))
 		for _, s := range strs {
 			buf.WriteString(s.String())
 		}
+		r.chargeStringBuilder(&buf)
 		return asciiString(buf.String())
 	}
 
-	buf := make([]uint16, totalLen+1)
+	buf := makeMeteredSlice[uint16](r, totalLen+1, totalLen+1)
 	buf[0] = unistring.BOM
 	pos := 1
 	for _, s := range strs {
@@ -611,6 +613,9 @@ func (r *Runtime) stringReplace(s String, found []regexpResult, newstring String
 	a, u := devirtualizeString(s)
 
 	var buf StringBuilder
+	if r.checkAlloc != nil {
+		buf.meter = r
+	}
 
 	lastIndex := 0
 	lengthS := s.Length()
@@ -735,15 +740,19 @@ func (r *Runtime) stringproto_replaceAll(call FunctionCall) Value {
 	}
 
 	s := call.This.toString()
-	var found []regexpResult
+	var indexes [][2]int
 	searchStr := searchValue.toString()
 	searchLength := searchStr.Length()
 	advanceBy := toIntStrict(max(1, int64(searchLength)))
 
 	pos := s.index(searchStr, 0)
 	for pos != -1 {
-		found = append(found, regexpResult{indexes: []int{pos, pos + searchLength}})
+		indexes = appendMetered(r, indexes, [2]int{pos, pos + searchLength})
 		pos = s.index(searchStr, pos+advanceBy)
+	}
+	found := makeMeteredSlice[regexpResult](r, len(indexes), len(indexes))
+	for i := range indexes {
+		found[i].indexes = indexes[i][:]
 	}
 
 	str, rcall := getReplaceValue(replaceValue)

@@ -102,7 +102,7 @@ func (a *arrayObject) _setLengthInt(l uint32, throw bool) bool {
 	}
 	if l <= uint32(len(a.values)) {
 		if l >= 16 && l < uint32(cap(a.values))>>2 {
-			ar := make([]Value, l)
+			ar := makeMeteredSlice[Value](a.val.runtime, int(l), int(l))
 			copy(ar, a.values)
 			a.values = ar
 		} else {
@@ -380,7 +380,7 @@ func (a *arrayObject) expand(idx uint32) bool {
 					}
 				}
 				tl := int(targetLen)
-				newValues := make([]Value, tl, growCap(tl, len(a.values), cap(a.values)))
+				newValues := makeMeteredSlice[Value](a.val.runtime, tl, growCap(tl, len(a.values), cap(a.values)))
 				copy(newValues, a.values)
 				a.values = newValues
 			}
@@ -566,7 +566,7 @@ func (a *arrayObject) exportToArrayOrSlice(dst reflect.Value, typ reflect.Type, 
 }
 
 func (a *arrayObject) setValuesFromSparse(items []sparseArrayItem, newMaxIdx int) {
-	a.values = make([]Value, newMaxIdx+1)
+	a.values = makeMeteredSlice[Value](a.val.runtime, newMaxIdx+1, newMaxIdx+1)
 	for _, item := range items {
 		a.values[item.idx] = item.value
 	}

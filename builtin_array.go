@@ -355,7 +355,7 @@ func (r *Runtime) arrayproto_slice(call FunctionCall) Value {
 	a := arraySpeciesCreate(o, count)
 	if src := r.checkStdArrayObj(o); src != nil {
 		if dst := r.checkStdArrayObjWithProto(a); dst != nil {
-			values := make([]Value, count)
+			values := makeMeteredSlice[Value](r, int(count), int(count))
 			copy(values, src.values[start:])
 			setArrayValues(dst, values)
 			return a
