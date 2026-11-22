@@ -3,6 +3,7 @@ package goja
 import (
 	"errors"
 	"testing"
+	"unsafe"
 )
 
 var errTestQuota = errors.New("test quota")
@@ -82,7 +83,7 @@ func TestAllocationReplacementCapturesAreMetered(t *testing.T) {
 		`RegExp.prototype[Symbol.replace].call({ flags: "", exec() { return { 0: "x", index: 0, length: 512, groups: {} }; } }, "x", () => "y")`,
 		`RegExp.prototype[Symbol.replace].call({ flags: "", exec() { return { 0: "x", index: 0, length: 2 ** 32 }; } }, "x", "y")`,
 	} {
-		m := newTestMeter(16 << 10)
+		m := newTestMeter(1024 * int64(unsafe.Sizeof(Value(nil))))
 		_, err := m.rt.RunString(`try { ` + code + ` } catch (_) {}`)
 		var interrupted *InterruptedError
 		if !errors.As(err, &interrupted) || interrupted.Value() != errTestQuota {
