@@ -26,9 +26,14 @@ func chargeSlice[T any](r *Runtime, b []T) {
 }
 
 func makeMeteredSlice[T any](r *Runtime, length, capacity int) []T {
+	return makeMeteredSlice64[T](r, int64(length), int64(capacity))
+}
+
+// Check JavaScript lengths before narrowing them on 32-bit platforms.
+func makeMeteredSlice64[T any](r *Runtime, length, capacity int64) []T {
 	var elem T
-	r.checkAllocation(int64(capacity) * int64(unsafe.Sizeof(elem)))
-	b := make([]T, length, capacity)
+	r.checkAllocation(capacity * int64(unsafe.Sizeof(elem)))
+	b := make([]T, toIntStrict(length), toIntStrict(capacity))
 	chargeSlice(r, b)
 	return b
 }
