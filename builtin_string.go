@@ -625,7 +625,7 @@ func (r *Runtime) stringReplace(s String, found []regexpResult, newstring String
 				buf.WriteSubstring(s, lastIndex, item.indexes[0])
 			}
 			matchCount := len(item.indexes) / 2
-			argumentList := make([]Value, matchCount+2, matchCount+3)
+			argumentList := makeMeteredSlice[Value](r, matchCount+2, matchCount+3)
 			for index := 0; index < matchCount; index++ {
 				offset := 2 * index
 				if item.indexes[offset] != -1 {

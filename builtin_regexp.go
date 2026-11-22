@@ -1141,9 +1141,9 @@ func (r *Runtime) regexpproto_stdReplacerGeneric(rxObj *Object, s, replaceStr St
 		position := toIntStrict(max(min(nilSafe(obj.self.getStr("index", nil)).ToInteger(), int64(lengthS)), 0))
 		var captures []Value
 		if rcall != nil {
-			captures = make([]Value, 0, nCaptures+3)
+			captures = makeMeteredSlice[Value](r, 0, toIntStrict(nCaptures+3))
 		} else {
-			captures = make([]Value, 0, nCaptures+1)
+			captures = makeMeteredSlice[Value](r, 0, toIntStrict(nCaptures+1))
 		}
 		captures = append(captures, matched)
 		for n := int64(1); n <= nCaptures; n++ {
@@ -1157,7 +1157,7 @@ func (r *Runtime) regexpproto_stdReplacerGeneric(rxObj *Object, s, replaceStr St
 		if rcall != nil {
 			captures = append(captures, intToValue(int64(position)), s)
 			if namedCaptures := nilSafe(obj.self.getStr("groups", nil)); namedCaptures != _undefined {
-				captures = append(captures, namedCaptures)
+				captures = appendMetered(r, captures, namedCaptures)
 			}
 			replacement = rcall(FunctionCall{
 				This:      _undefined,
