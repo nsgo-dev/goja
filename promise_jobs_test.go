@@ -70,3 +70,38 @@ func TestRetainUnstartedPromiseJobs(t *testing.T) {
 		})
 	}
 }
+
+func TestInterruptingPromiseJobRetainsCallError(t *testing.T) {
+	const dispatch = `Promise.resolve().then(() => { cancel(); return "unreached"; }); throw new Error("dispatch refused")`
+	for _, name := range []string{"script", "call"} {
+		t.Run(name, func(t *testing.T) {
+			rt := New()
+			rt.SetPromiseJobFilter(func(any) bool { return true })
+			cut := errors.New("cancel the test job")
+			rt.Set("cancel", func() { rt.Interrupt(cut) })
+			var err error
+			if name == "script" {
+				_, err = rt.RunString(dispatch)
+			} else {
+				var fn Value
+				fn, err = rt.RunString("(function () { " + dispatch + " })")
+				if err != nil {
+					t.Fatal(err)
+				}
+				call, _ := AssertFunction(fn)
+				_, err = call(Undefined())
+			}
+			var interrupted *InterruptedError
+			if !errors.Is(err, cut) || !errors.As(err, &interrupted) {
+				t.Fatalf("call returned %v, want the interruption", err)
+			}
+			var exception *Exception
+			if !errors.As(interrupted.CallError(), &exception) {
+				t.Fatalf("original call error = %v, want an exception", interrupted.CallError())
+			}
+			if got := exception.Value().(*Object).Get("message").String(); got != "dispatch refused" {
+				t.Fatalf("original call error = %q, want dispatch refused", got)
+			}
+		})
+	}
+}

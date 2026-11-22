@@ -3,6 +3,7 @@ package goja
 import (
 	"errors"
 	"testing"
+	"unsafe"
 )
 
 var errTestQuota = errors.New("test quota")
@@ -71,6 +72,44 @@ func TestAllocationAppendsStopAtTheLimit(t *testing.T) {
 		if m.used > m.limit {
 			t.Fatalf("%s charged %d past the limit %d", code, m.used, m.limit)
 		}
+	}
+}
+
+func TestAllocationReplacementCapturesAreMetered(t *testing.T) {
+	for _, code := range []string{
+		`RegExp.prototype[Symbol.replace].call({ flags: "", exec() { return { 0: "x", index: 0, length: 4096 }; } }, "x", "y")`,
+		`RegExp.prototype[Symbol.replace].call({ flags: "", exec() { return { 0: "x", index: 0, length: 4096 }; } }, "x", () => "y")`,
+		// Adding named groups grows an already-metered callback argument list.
+		`RegExp.prototype[Symbol.replace].call({ flags: "", exec() { return { 0: "x", index: 0, length: 512, groups: {} }; } }, "x", () => "y")`,
+		`RegExp.prototype[Symbol.replace].call({ flags: "", exec() { return { 0: "x", index: 0, length: 2 ** 32 }; } }, "x", "y")`,
+	} {
+		m := newTestMeter(1024 * int64(unsafe.Sizeof(Value(nil))))
+		_, err := m.rt.RunString(`try { ` + code + ` } catch (_) {}`)
+		var interrupted *InterruptedError
+		if !errors.As(err, &interrupted) || interrupted.Value() != errTestQuota {
+			t.Errorf("%s returned %v, want the quota", code, err)
+		}
+		if m.used > m.limit {
+			t.Errorf("%s charged %d past the limit %d", code, m.used, m.limit)
+		}
+	}
+}
+
+func TestAllocationReplacementCapturesPreserveArguments(t *testing.T) {
+	m := newTestMeter(16 << 10)
+	value, err := m.rt.RunString(`let seen;
+		let result = RegExp.prototype[Symbol.replace].call({
+			flags: "", exec() { return { 0: "b", 1: "a", index: 1, length: 2, groups: { word: "a" } }; }
+		}, "aba", function (match, capture, position, input, groups) {
+			seen = [match, capture, position, input, groups.word].join(":");
+			return "<" + capture + ">";
+		});
+		result + "|" + seen`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "a<a>a|b:a:1:aba:a"; value.String() != want {
+		t.Fatalf("replacement = %s, want %s", value, want)
 	}
 }
 
